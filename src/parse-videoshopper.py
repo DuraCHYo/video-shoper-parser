@@ -7,9 +7,11 @@ import sqlite3
 import telebot
 from dotenv import load_dotenv
 import os
+import threading
 
 current_price_data = None
 load_dotenv()
+next_interval = 10
 tgbotapikey = os.getenv('TGBOT_TOKEN')
 tgbotchatid = os.getenv('CHAT_ID')
 dbconnection = sqlite3.connect("iphoneprice.db")
@@ -19,13 +21,17 @@ cursor.execute('CREATE INDEX IF NOT EXISTS idx_timestamp ON price(timestamp)')
 dbconnection.commit()
 url = 'https://video-shoper.ru/shipment/apple-iphone-17-pro-256gb-esim-cosmic-orange-oranzhevyy.html'
 headers = {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.36", "Cookie": "beget=begetok"
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.36",
+    "Cookie": "beget=begetok"
 }
+bot = telebot.TeleBot(tgbotapikey)
+
 
 def iphone():
     global current_price_data
+    global next_interval
     # startexecution = time.time()
-    res=r.get(url, headers=headers)
+    res = r.get(url, headers=headers)
     try:
         soup = bs(res.content, 'html.parser')
         content = soup.find('div', class_='current')
@@ -53,14 +59,22 @@ def iphone():
     print(f"Последние {len(recent_records)} записей в БД:")
     for record in recent_records:
         print(f"  {record[0]} - {record[1]} руб.")
-    cursor.execute('''DELETE FROM price WHERE date(timestamp) < date('now', '-3 days')''')
+    cursor.execute('''DELETE
+                      FROM price
+                      WHERE date(timestamp) < date('now', '-3 days')''')
     dbconnection.commit()
     current_price_data = {
         'price': rpl,
         'timestamp': full_timestamp
     }
     sendtelegrammessage(rpl)
+
+    schedule.clear()
+    next_interval = random.randint(5, 20)
+    schedule.every(next_interval).minutes.do(iphone)
+    print(f"Следующее обновление через {next_interval} минут")
     return rpl
+
 
 def sendtelegrammessage(rpl):
     cursor.execute('SELECT price FROM price ORDER BY timestamp DESC LIMIT 1 OFFSET 1')
@@ -70,32 +84,34 @@ def sendtelegrammessage(rpl):
         previous_price = int(result[0])
         if current_price < previous_price:
             cost = f'Цена на телефон упала! Было: {previous_price} руб., Стало: {current_price} руб.'
-            bot = telebot.TeleBot(tgbotapikey)
             bot.send_message(tgbotchatid, cost)
             print(cost)
         elif current_price > previous_price:
             cost = f'Цена на телефон выросла! Было: {previous_price} руб., Стало: {current_price} руб.'
-            bot = telebot.TeleBot(tgbotapikey)
             bot.send_message(tgbotchatid, cost)
 
 
 if __name__ == '__main__':
-    iphone()
-    bot = telebot.TeleBot(tgbotapikey)
-
     @bot.message_handler(commands=['price'])
     def sendactualprice(message):
         global current_price_data
         response = (f'Текущая цена: {current_price_data}')
         bot.reply_to(message, response)
 
-    next_interval = random.randint(5, 20)
-    schedule.every(next_interval).minutes.do(iphone)
+
+    def run_bot():
+        bot.polling(none_stop=True)
+
+
+    bot_thread = threading.Thread(target=run_bot, daemon=True)
+    bot_thread.start()
+
+    iphone()
 
     try:
         while True:
-            bot.polling(none_stop=True, timeout=1)  # polling с таймаутом
             schedule.run_pending()
+            time.sleep(1)
     finally:
         cursor.close()
         dbconnection.close()

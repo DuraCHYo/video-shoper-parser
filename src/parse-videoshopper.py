@@ -1,4 +1,3 @@
-import datetime
 import time
 import requests as r
 import random
@@ -9,6 +8,7 @@ import telebot
 from dotenv import load_dotenv
 import os
 
+current_price_data = None
 load_dotenv()
 tgbotapikey = os.getenv('TGBOT_TOKEN')
 tgbotchatid = os.getenv('CHAT_ID')
@@ -21,7 +21,9 @@ url = 'https://video-shoper.ru/shipment/apple-iphone-17-pro-256gb-esim-cosmic-or
 headers = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.36", "Cookie": "beget=begetok"
 }
+
 def iphone():
+    global current_price_data
     # startexecution = time.time()
     res=r.get(url, headers=headers)
     try:
@@ -53,6 +55,10 @@ def iphone():
         print(f"  {record[0]} - {record[1]} руб.")
     cursor.execute('''DELETE FROM price WHERE date(timestamp) < date('now', '-3 days')''')
     dbconnection.commit()
+    current_price_data = {
+        'price': rpl,
+        'timestamp': full_timestamp
+    }
     sendtelegrammessage(rpl)
     return rpl
 
@@ -72,15 +78,24 @@ def sendtelegrammessage(rpl):
             bot = telebot.TeleBot(tgbotapikey)
             bot.send_message(tgbotchatid, cost)
 
+
 if __name__ == '__main__':
     iphone()
+    bot = telebot.TeleBot(tgbotapikey)
+
+    @bot.message_handler(commands=['price'])
+    def sendactualprice(message):
+        global current_price_data
+        response = (f'Текущая цена: {current_price_data}')
+        bot.reply_to(message, response)
 
     next_interval = random.randint(5, 20)
     schedule.every(next_interval).minutes.do(iphone)
+
     try:
         while True:
+            bot.polling(none_stop=True, timeout=1)  # polling с таймаутом
             schedule.run_pending()
-            time.sleep(1)
     finally:
         cursor.close()
         dbconnection.close()

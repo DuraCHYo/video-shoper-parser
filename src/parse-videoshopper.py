@@ -31,7 +31,7 @@ def iphone():
     global current_price_data
     global next_interval
     # startexecution = time.time()
-    res = r.get(url, headers=headers)
+    res = r.get(url, headers=headers, timeout=10)
     try:
         soup = bs(res.content, 'html.parser')
         content = soup.find('div', class_='current')
@@ -100,7 +100,13 @@ if __name__ == '__main__':
 
 
     def run_bot():
-        bot.polling(none_stop=True)
+        while True:
+            try:
+                bot.polling(none_stop=True, timeout=30)
+            except Exception as e:
+                print(f"error in request to api.telegram.org: {e}")
+                print('restarting...')
+                time.sleep(10)
 
 
     bot_thread = threading.Thread(target=run_bot, daemon=True)

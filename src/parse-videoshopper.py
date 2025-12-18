@@ -24,7 +24,6 @@ headers = {
 def iphone():
     # startexecution = time.time()
     res=r.get(url, headers=headers)
-
     try:
         soup = bs(res.content, 'html.parser')
         content = soup.find('div', class_='current')
